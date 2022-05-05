@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Sat May 11 08:56:41 2019
 
-@author: nolte
+@author: nolte (origional author)
+
+Heavily modified by Ben Hayward
+Wed May 4 20:14:23 2022
 
 D. D. Nolte, Introduction to Modern Dynamics: Chaos, Networks, Space and Time, 2nd ed. (Oxford,2019)
 """
@@ -14,7 +15,6 @@ D. D. Nolte, Introduction to Modern Dynamics: Chaos, Networks, Space and Time, 2
 
 import numpy as np
 from scipy import integrate
-from scipy import linalg
 from matplotlib import pyplot as plt
 import networkx as nx
 from UserFunction import linfit
@@ -25,32 +25,45 @@ tstart = time.time()
 
 plt.close('all')
 
-Nfac = 90   # 25
-N = 2     # 50
+# Number of tanks
+N = 2
 
-
+# Mass of empty tank
 m0 = 1
+
+# Total mass of gas in tank network
 mgas = 5
+
+# Set up initial masses of gas in tanks
 c0 = np.zeros(shape=(N,))
 c0[0] = mgas;
+
+# Coupling constant
 g = 0.01
-B = 0.1
+
+# Diffusion constant
+B = 0.09
+
+# Time step used in diffusion (not required elsewhere)
 dt = 1
 
+# Final natural frequency. Natural frequencies approach this frequency.
 omegaNatFinal = 5
+
+# Final mass of tanks, including empty tank mass. Assumes evenly distributed final state.
 mfinal = (mgas / N)+m0
 
+# Used to scale plots
 omegaLargest = omegaNatFinal/np.sqrt((mgas+m0)/mfinal)
-
-averageOmegaInit = np.average(omegaNatFinal/np.sqrt((c0+m0)/mfinal));
-
 width = 1.4*omegaLargest
 
 
 # model_case 1 = complete graph (Kuramoto transition)
 # model_case 2 = Erdos-Renyi
-model_case = 3#int(input('Input Model Case (1-2)'))
-B = 0.01
+# model_case 3 = Linear graph (what i used for my presentation)
+model_case = 3      #int(input('Input Model Case (1-2)'))
+
+# Diffusion constant
 if model_case == 1:
     facoef = 3 # Lengthens g axis???
     nodecouple = nx.complete_graph(N)
@@ -58,7 +71,7 @@ elif model_case == 2:
     facoef = 5
     nodecouple = nx.erdos_renyi_graph(N,0.1)
 elif model_case == 3:
-    # Makes a linearly coupled graph of n osccillators (in a loop)
+    # Makes a linearly coupled graph of N osccillators (in a loop)
     a = np.zeros(shape = (N,N))
     for i in range(N):
         for j in range(N):
@@ -71,8 +84,9 @@ elif model_case == 3:
         a[0,N-1] = 1
     facoef = 3
     nodecouple = nx.from_numpy_matrix(a, parallel_edges=False, create_using=None)
-    B = 0.09
-dt = 1
+
+# Using the network, finds the eigenvalues and eigenvectors of the graph laplacian
+# once, rather than multiple times, to speed up the loops
 laplacian = nx.laplacian_matrix(nodecouple, nodelist=None, weight='weight')
 floqM = (sparse.eye(N)-laplacian*B*dt).toarray(order=None, out=None)
 denseLap = laplacian.todense()
@@ -82,53 +96,44 @@ for i in range(N):
     Vtemp = vecs[:,i]
     v[i] = c0 @ Vtemp
     
-#Gets the concentration (mass) each gas tank at time t0. Includes mass of tank Why t0 I'm not sure.
-
+# Gets the concentration (mass) each gas tank at time t0. Why t0 I'm not sure.
+# Includes mass of tank
 def gasDiffuse(y,t0):
+    # Alternative, unused way to find the diffusion, using floquet matrix
     # transition = linalg.fractional_matrix_power(floqM,t0/dt)
     # cnew = transition @ c0 + m0
+    
+    #Method using eigenvectors
     concentration = np.zeros(N)
     for nodeloop in range(N):
          temp = 0;
          for eigloop in range(N): 
              temp = temp + vecs[nodeloop,eigloop]*v[eigloop]*np.exp(-vals[eigloop]*B*(t0));
-            
          concentration[nodeloop] = temp;
     return concentration + m0;
-    
-# omega = np.linspace(-width/2, width/2, N)
-# sto = np.std(omega)
  
-# omega = np.zeros(shape=(N,))
-# omegatemp = width*(np.random.rand(N)-1)
-# omegatemp.sort()
-# meanomega = np.mean(omegatemp)
-# omega = omegatemp - meanomega
-# sto = np.std(omega)
-
-    
+# Natural frequencies of the oscillators   
 omega = np.zeros(shape=(N,))
-omega[0] = width/2
-omegatemp = omega
-meanomega = np.mean(omegatemp)
-omega = omegatemp - meanomega
-sto = np.std(omega)
 
-
-
-def coupleN(G, tc, oldOmega):
-
-    # function: yd = flow_deriv(x_y)
-    #nonLinOmega = omegaNatFinal/np.sqrt(masses/mfinal)'
-    masses = gasDiffuse(0,tc);
+# At a time tc, calculates the frequency and position of the oscillators
+def coupleN(G, tc):
+    
+    # Gets the masses at time tc
+    masses = gasDiffuse(0,tc)
+    
     def flow_deriv(y,t0):
-        #print(t0)
+        
+        #This next coding line has to be inside function. I suspect it has 
+        #something to do with how python manages garbage collection, but I 
+        #don't know.
+        
+        #Natural frequencies
+        omega = omegaNatFinal/np.sqrt(masses/mfinal)   
+        #y partial derrivatives
         yp = np.zeros(shape=(N,))
-        #masses = (m0+c0)
         
-        #print(masses)
-        omega = omegaNatFinal/np.sqrt(masses/mfinal)
-        
+        #Gets the derrivatives for each oscillator based on network
+        #connectivity, coupling, and natural frequency
         for omloop  in range(N):
             temp = omega[omloop]
             linksz = G.nodes[omloop]['numlink']
@@ -144,8 +149,6 @@ def coupleN(G, tc, oldOmega):
             yd[omloop] = yp[omloop]
         return yd
     # end of function flow_deriv(x_y)
-
-    mnomega = 1.0
     
     for nodeloop in range(N):
         omega[nodeloop] = G.nodes[nodeloop]['element']
@@ -164,7 +167,6 @@ def coupleN(G, tc, oldOmega):
         
     # Fit the frequency
     m = np.zeros(shape = (N,))
-    w = np.zeros(shape = (N,))
     mtmp = np.zeros(shape=(4,))
     btmp = np.zeros(shape=(4,))
     for omloop in range(N):
@@ -182,17 +184,15 @@ def coupleN(G, tc, oldOmega):
             mtmp[3],btmp[3] = linfit(t[0:sytmp],y[0:sytmp,omloop]);
 
         
-        #m[omloop] = np.median(mtmp)
         m[omloop] = np.mean(mtmp)
-        
-        w[omloop] = mnomega + m[omloop]
      
     omegout = m
     yout = y
     
     return omegout, yout
-    # end of function: omegout, yout = coupleN(G)
+# end of function: omegout, yout = coupleN(G)
 
+# Not quite sure what this block does
 lnk = np.zeros(shape = (N,), dtype=int)
 for loop in range(N):
     nodecouple.nodes[loop]['element'] = omega[loop]
@@ -201,109 +201,55 @@ for loop in range(N):
     lnk[loop] = np.size(list(nx.neighbors(nodecouple,loop)))
 
 avgdegree = np.mean(lnk)
-mnomega = 1
 
-# facval = np.zeros(shape = (Nfac,))
-# yy = np.zeros(shape=(Nfac,N))
-# xx = np.zeros(shape=(Nfac,))
-
-# facval = np.zeros(shape = (Nfac,))
-# yy = np.zeros(shape=(Nfac,N))
-# xx = np.zeros(shape=(Nfac,))
-# for facloop in range(Nfac):
-#     print(facloop)
-
-#     fac = facoef*(16*facloop/(Nfac))*(1/(N-1))*sto/mnomega
-#     for nodeloop in range(N):
-#         nodecouple.nodes[nodeloop]['coupling'] = np.zeros(shape=(lnk[nodeloop],))
-#         for linkloop in range (lnk[nodeloop]):
-#             nodecouple.nodes[nodeloop]['coupling'][linkloop] = fac
-
-#     facval[facloop] = fac*avgdegree
-    
-#     omegout, yout = coupleN(nodecouple)                           # Here is the subfunction call for the flow
-
-#     for omloop in range(N):
-#         yy[facloop,omloop] = omegout[omloop]
-
-#     xx[facloop] = facval[facloop]
-
-# plt.figure(1)
-# lines = plt.plot(xx,yy)
-# plt.setp(lines, linewidth=0.5)
-fac = g#facoef*(16/(Nfac))*(1/(N-1))*sto/mnomega
+# Sets the coupling of each link in network to g
+fac = g
 for nodeloop in range(N):
     nodecouple.nodes[nodeloop]['coupling'] = np.zeros(shape=(lnk[nodeloop],))
     for linkloop in range (lnk[nodeloop]):
         nodecouple.nodes[nodeloop]['coupling'][linkloop] = fac
-tstop = 200
-yy = np.zeros(shape=(tstop,N))
-tt = np.zeros(shape=(tstop,))
-omegaout = 0
 
-oldOldOmega = averageOmegaInit
+
+# Gets the frequencies as a function of time. This is where the coupleN
+# function is used
+tstop = 200                    # Time until frequencies and masses are plotted
+yy = np.zeros(shape=(tstop,N)) # Frequencies
+tt = np.zeros(shape=(tstop,))  # Times
 for i in range(tstop):
-    omegaout, yout = coupleN(nodecouple,i,oldOldOmega)
+    omegaout, yout = coupleN(nodecouple,i) # coupleN used here
     for omloop in range(N):
         yy[i,omloop] = omegaout[omloop]
     tt[i] = i;
-    print(i)
-    oldOldOmega = np.average(omegaout)
-    print(oldOldOmega)
-plt.figure(2)
+
+##############################################
+#
+#   Plotting Data
+#
+##############################################
+
+
+# Recalculates the Masses vs time
 ts = np.linspace(0,tstop-1,tstop);
 cs = np.zeros(shape=(tstop,N));
 for tunit in ts:
     cs[int(tunit)] = gasDiffuse(0,tunit)
+    
+# Plots the Masses vs time
 lines2 = plt.plot(ts, cs)
 plt.setp(lines2, linewidth = 0.5)
 plt.title('Masses vs Time')
 plt.xlabel('time')
 plt.ylabel('total mass')
-
 plt.figure()
+
+# Plots the Frequencies vs time
 plt.title('Frequencies vs Time for g={a}'.format(a = g))
 lines = plt.plot(tt,yy)
 plt.setp(lines, linewidth=0.5)
 plt.xlabel('time')
 plt.ylabel('frequency')
+plt.figure()
 
-#plt.figure()
-lines = plt.plot(tt,yy)
-plt.setp(lines, linewidth=0.5)
-#plt.xlim([24,47])
-
+# Prints the runtime
 elapsed_time = time.time() - tstart
 print('elapsed time = ',format(elapsed_time,'.2f'),'secs')
-
-
-plt.figure()
-diffFreq = np.zeros(shape=(tstop,N))
-diffdiffFreq = np.zeros(shape=(tstop,N-1))
-for i in range(tstop):
-    for omloop in range(N):
-        diffFreq[i,omloop] = yy[i,omloop]-omegaNatFinal/(np.sqrt(cs[i,omloop]/mfinal))
-        if(omloop > 0):
-            diffdiffFreq[i,omloop-1] = ((cs[i,omloop])/(cs[i,omloop-1]))**(omegaNatFinal/g)
-            #diffdiffFreq[i,omloop-1] = g>omegaNatFinal/(np.sqrt(cs[i,omloop]/mfinal))-omegaNatFinal/(np.sqrt(cs[i,omloop-1]/mfinal))#yy[i,omloop] - yy[i, omloop-1]
-    tt[i] = i;
-    print(i)
-
-plt.figure()
-plt.title('Diff Freq Time for g={a}'.format(a = g))
-#lines = plt.plot(tt,diffdiffFreq)#abs(diffdiffFreq[:,0]))#, color = "black")
-plt.plot(tt,diffFreq)
-#plt.setp(lines, linewidth=0.5)
-#plt.yslim(-0.03,0.01)
-plt.xlabel('time')
-plt.ylabel('difffreq')
-
-# plt.figure()
-# plt.title('bleh for g={a}'.format(a = g))
-# lines = plt.plot(tt,yy)
-# lines2 = plt.plot(tt,diffdiffFreq)
-# plt.setp(lines, linewidth=0.5)
-# plt.ylim(-0.03,0.01)
-# plt.xlabel('time')
-# plt.ylabel('frequency difference')
-# plt.show()
